@@ -2,76 +2,69 @@ resource "aws_s3_bucket" "bucket_s3" {
   bucket = "bucket_s3"
 }
 
-resource "aws_iam_role" "iam_role" {
-  name = "iam_role"
-
-  assume_role_policy = <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "ec2.amazonaws.com"
-      },
-      "Action": "sts:AssumeRole"
-    }
-  ]
-}
-EOF
-}
-
-resource "aws_iam_role_policy" "iam_role_policy" {
-  name = "policy"
-  role = aws_iam_role.iam_role.id
-
+resource "aws_s3_bucket_policy" "allow_access" {
+  depends_on = [aws_instance.instance_EC2]
+  bucket = aws_s3_bucket.bucket_s3.id
   policy = <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "s3:ListBucket",
-        "s3:GetObject"
-      ],
-      "Resource": [
-        "arn:aws:s3:::bucket_s3",
-        "arn:aws:s3:::bucket_s3/*"
-      ]
-    }
-  ]
+   {
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Sid": "Statement1",
+			"Principal": "*",
+			"Effect": "deny",
+			"Action": [
+				"s3:*"
+			],
+			"Resource": [
+				"arn:aws:s3:::mybucket123esgi"
+			],
+			"Condition": {
+				"NotIpAddress": {
+					"aws:SourceIp": [
+						"1.1.1.1/32"
+					]
+				}
+			}
+		}
+	]
 }
-EOF
-}
-
-resource "aws_iam_instance_profile" "profile" {
-  name  = "profile"
-  role = aws_iam_role.iam_role.name 
-}
-
-resource "aws_instance" "instance_EC2" {
-  ami           = "ami-0ff8a91507f77f867"
-  instance_type = "t2.micro"
-  iam_instance_profile = aws_iam_instance_profil.profile.name
-  tags = {
-    Name = "instance_EC2"
-  }
+   EOF
 }
 
-# Configuration SSH
-resource "aws_key_pair" "myssh-key" {
+resource "aws_vpc" "vpc" {
+  cidr_block = var.vpc_cidr_block
+}
+
+resource "aws_subnet" "subnet" {
+  vpc_id            = aws_vpc.vpc.id
+  cidr_block        = var.subnet_cidr_block
+  availability_zone = var.aws_region
+}
+
+resource "aws_key_pair" "ssh-key" {
   key_name   = var.ssh_key_name
   public_key = var.public_ssh_key
 }
 
-# Configuration SG
-resource "aws_security_group" "my-sg" {
-  name = var.sg_name
 
+resource "aws_instance" "instance_EC2" {
+  ami                    = var.ec2_ami
+  instance_type          = var.ec2_instance_type
+  key_name               = aws_key_pair.ssh-key.key_name
+  vpc_name               = var.vpc_name
+  subnet_id              = aws_subnet.subnet.id
+  tags = {
+    Name = "instance_EC2-2"
+  }
+}
+
+
+resource "aws_security_group" "security-group" {
+  name = var.sg_name
   ingress = [{
-    cidr_blocks      = var.sg_ingress_cidr_blocks
     description      = "Autoriser SSH"
+    cidr_blocks      = var.sg_egress_cidr_blocks
     from_port        = var.sg_ingress_from_port
     ipv6_cidr_blocks = []
     prefix_list_ids  = []
@@ -83,8 +76,8 @@ resource "aws_security_group" "my-sg" {
 
   egress = [{
     description      = "Allow connection to any internet service"
-    from_port        = 0
-    to_port          = 0
+    from_port        = var.sg_egress_from_port
+    to_port          = var.sg_egress_to_port
     protocol         = var.sg_egress_protocol
     cidr_blocks      = var.sg_egress_cidr_blocks
     self             = false
@@ -95,35 +88,6 @@ resource "aws_security_group" "my-sg" {
   }]
 
 }
-resource "aws_vpc" "vpc" {
-  cidr_block = "10.0.0.0/16"
-}
 
-resource "aws_subnet" "subnet" {
-  vpc_id                  = aws_vpc.vpc.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "us-east-1"
-}
 
-resource "aws_instance" "instance_2" {
-  ami           = "ami-0ff8a91507f77f867"
-  instance_type = "t2.micro"
-  vpc_security_group_ids = [aws_security_group.my-sg.id]
-  subnet_id = aws_subnet.subnet.id
-  tags = {
-    Name = "instance_2"
-  }
-}
-# Configuration EC2
-resource "aws_instance" "myec2" {
-
-  ami             = var.ec2_ami
-  instance_type   = var.ec2_instance_type
-  key_name        = aws_key_pair.myssh-key.key_name
-  security_groups = [aws_security_group.my-sg.name]
-  tags = {
-    "Name" = var.ec2_name
-  }
-
-}
 
